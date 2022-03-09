@@ -18,6 +18,9 @@
   "dependencies": {
     "dotenv": "^8.2.0",
     "express": "^4.17.1",
+    "express-openid-connect": "^2.7.1",
+    "got": "^11.8.3",
+    "node-fetch": "^2.6.7",
     "pug": "^3.0.0"
   }
 }

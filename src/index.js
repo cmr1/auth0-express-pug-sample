@@ -4,6 +4,13 @@
 
 const express = require("express");
 const path = require("path");
+const { auth, requiresAuth } = require('express-openid-connect');
+const got = require('got');
+const fetch = require('node-fetch');
+
+// Error [ERR_REQUIRE_ESM]: Must use import to load ES Module: /home/charlie/dev/auth0-blog/auth0-express-pug-sample/node_modules/got/dist/source/index.js
+// - https://github.com/node-fetch/node-fetch/issues/1279
+// - https://stackoverflow.com/questions/69041454/error-require-of-es-modules-is-not-supported-when-importing-node-fetch
 
 require("dotenv").config();
 
@@ -24,26 +31,125 @@ app.set("views", path.join(__dirname, "views"));
 app.set("view engine", "pug");
 app.use(express.static(path.join(__dirname, "..", "public")));
 
+app.use(
+  auth({
+    issuerBaseURL: process.env.AUTH0_ISSUER_BASE_URL,
+    baseURL: process.env.BASE_URL,
+    clientID: process.env.AUTH0_CLIENT_ID,
+    secret: process.env.SESSION_SECRET,
+    authRequired: false,
+    auth0Logout: true,
+    clientSecret: process.env.CLIENT_SECRET,
+    authorizationParams: {
+      response_type: "code",
+      audience: process.env.AUTH0_AUDIENCE,
+    },
+  }),
+);
+
+app.use((req, res, next) => {
+  res.locals.isAuthenticated = req.oidc.isAuthenticated();
+  res.locals.activeRoute = req.originalUrl.replace(/^\//, '');
+  next();
+});
+
 /**
  * Routes Definitions
  */
 
+// > Sign Up
+
+app.get('/sign-up', (req, res) => {
+  res.oidc.login({
+    authorizationParams: {
+      screen_hint: 'signup',
+    },
+  });
+});
+
 // > Home
 
 app.get("/", (req, res) => {
-  res.render("home", { activeRoute: req.originalUrl });
+  res.render("home");
 });
 
 // > Profile
 
-app.get("/profile", (req, res) => {
-  res.render("profile", { activeRoute: req.originalUrl });
+app.get("/profile", requiresAuth(), (req, res) => {
+  res.render("profile", {
+    user: req.oidc.user,
+  });
 });
 
 // > External API
 
 app.get("/external-api", (req, res) => {
-  res.render("external-api", { activeRoute: req.originalUrl });
+  res.render("external-api");
+});
+
+app.get('/external-api/public-message', async (req, res) => {
+  let message;
+
+  try {
+    const body = await got(
+      `${process.env.SERVER_URL}/api/messages/public-message`,
+    ).json();
+
+    message = body.message;
+  } catch (e) {
+    message = 'Unable to retrieve message.';
+  }
+
+  res.render('external-api', { message });
+});
+
+app.get('/external-api/protected-message', requiresAuth(), async (req, res) => {
+  const { token_type, access_token } = req.oidc.accessToken;
+  let message;
+
+  try {
+    const body = await got(
+      `${process.env.SERVER_URL}/api/messages/protected-message`,
+      {
+        headers: {
+          Authorization: `${token_type} ${access_token}`,
+        },
+      },
+    ).json();
+
+    message = body.message;
+  } catch (e) {
+    message = 'Unable to retrieve message.';
+  }
+
+  res.render('external-api', { message });
+});
+
+app.get('/sign-up/:page/:section?', (req, res) => {
+  const { page, section } = req.params;
+
+  res.oidc.login({
+    returnTo: section ? `${page}/${section}` : page,
+    authorizationParams: {
+      screen_hint: 'signup',
+    },
+  });
+});
+
+app.get('/login/:page/:section?', (req, res) => {
+  const { page, section } = req.params;
+
+  res.oidc.login({
+    returnTo: section ? `${page}/${section}` : page,
+  });
+});
+
+app.get('/logout/:page/:section?', (req, res) => {
+  const { page } = req.params;
+
+  res.oidc.logout({
+    returnTo: page,
+  });
 });
 
 // > Authentication
